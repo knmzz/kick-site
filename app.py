@@ -1,34 +1,45 @@
-from flask import Flask, render_template, request
+from flask import Flask, render_template, request, Response
 import threading
-import kick  # kick.py dosyasını buraya import ediyoruz
+import queue
+import kick   # kick.py içindeki fonksiyonları kullanacağız
 
 app = Flask(__name__)
 
-bot_thread = None  # Botu başlatacak thread
+log_queue = queue.Queue()   # Çıktıları siteye aktarmak için
 
-# Botu başlatmak için bir fonksiyon
+# kick.py içindeki print() yerine kullanılacak fonksiyon
+def log(message):
+    log_queue.put(message)
+
+# Botu başlatan wrapper
 def start_bot(channel, viewers):
-    kick.run(viewers, channel)  # kick.py'yi kullanarak botu başlatıyoruz
+    kick.run(viewers, channel, logger=log)
 
-# Ana sayfa
 @app.route("/", methods=["GET", "POST"])
 def index():
-    global bot_thread
+    if request.method == "POST":
+        channel = request.form.get("channel")
+        viewers = int(request.form.get("viewers"))
 
-    if request.method == "POST":  # Eğer form submit edilmişse
-        channel = request.form.get("channel")  # Kanal adı
-        viewers = int(request.form.get("viewers"))  # İzleyici sayısı
+        t = threading.Thread(target=start_bot, args=(channel, viewers))
+        t.daemon = True
+        t.start()
 
-        # Yeni bir thread başlatıyoruz
-        bot_thread = threading.Thread(target=start_bot, args=(channel, viewers))
-        bot_thread.daemon = True  # Thread backgroundda çalışacak
-        bot_thread.start()
+        return render_template("index.html", started=True)
 
-        return "Bot başlatıldı! Terminale bakabilirsin."
+    return render_template("index.html", started=False)
 
-    # Ana sayfa render ediliyor
-    return render_template("index.html")
 
-# Flask uygulamasını çalıştırma
+# Canlı log yayını
+@app.route("/stream")
+def stream():
+    def event_stream():
+        while True:
+            msg = log_queue.get()
+            yield f"data: {msg}\n\n"
+
+    return Response(event_stream(), mimetype="text/event-stream")
+
+
 if __name__ == "__main__":
     app.run(debug=True)
