@@ -2,3 +2,5 @@ websockets
 streamlink
 fake-useragent
 tls-client
+Flask
+gunicorn
